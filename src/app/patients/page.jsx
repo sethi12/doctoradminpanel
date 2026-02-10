@@ -1,55 +1,44 @@
 'use client'
 export const dynamic = 'force-dynamic'
 
-import { useEffect, useMemo, useState } from 'react'
-import { useSearchParams, useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { db } from '../lib/firebase'
 import { ref, onValue } from 'firebase/database'
+import Link from 'next/link'
 
 export default function PatientsPage() {
   const searchParams = useSearchParams()
-  const router = useRouter()
   const filter = searchParams.get('filter') || 'all'
 
-  const [allPatients, setAllPatients] = useState([])
+  const [patients, setPatients] = useState([])
   const [loading, setLoading] = useState(true)
 
-  // 🔹 Subscribe ONCE to Firebase
   useEffect(() => {
     const bookingsRef = ref(db, 'bookings')
 
     const unsubscribe = onValue(bookingsRef, (snapshot) => {
       const data = snapshot.val()
-      const list = data
+      let all = data
         ? Object.entries(data).map(([id, val]) => ({ id, ...val }))
         : []
 
-      setAllPatients(list)
+      all.sort((a, b) => new Date(b.date) - new Date(a.date))
+
+      const todayStr = new Date().toISOString().split('T')[0]
+
+      if (filter === 'today') {
+        all = all.filter(b => b.date === todayStr)
+      } else if (filter === 'new') {
+        all = all.filter(b => b.patientType === 'New Patient')
+      }
+
+      setPatients(all)
       setLoading(false)
     })
 
     return () => unsubscribe()
-  }, [])
-
-  // 🔹 Filter locally (fast + clean)
-  const patients = useMemo(() => {
-    const todayStr = new Date().toISOString().split('T')[0]
-
-    let list = [...allPatients].sort(
-      (a, b) => new Date(b.date) - new Date(a.date)
-    )
-
-    if (filter === 'today') {
-      return list.filter(p => p.date === todayStr)
-    }
-
-    if (filter === 'new') {
-      return list.filter(p => p.patientType === 'New Patient')
-    }
-
-    return list
-  }, [allPatients, filter])
+  }, [filter])
 
   return (
     <div className="min-h-screen bg-[#f8fafc] pb-12">
@@ -59,7 +48,7 @@ export default function PatientsPage() {
           <div>
             <Link
               href="/"
-              className="text-teal-600 text-xs font-bold hover:underline"
+              className="text-teal-600 hover:text-teal-700 font-medium text-xs"
             >
               ← Back to Dashboard
             </Link>
@@ -71,32 +60,31 @@ export default function PatientsPage() {
             </h1>
           </div>
 
-          {/* Tabs */}
+          {/* Filter Tabs */}
           <div className="flex bg-slate-100 p-1 rounded-xl">
             {['all', 'today', 'new'].map((f) => (
-              <button
+              <Link
                 key={f}
-                onClick={() => router.push(`/patients?filter=${f}`)}
-                className={`px-4 py-1.5 text-xs font-black rounded-lg ${
+                href={`/patients?filter=${f}`}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
                   filter === f
-                    ? 'bg-white text-teal-600 shadow'
+                    ? 'bg-white text-teal-600 shadow-sm'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
                 {f.toUpperCase()}
-              </button>
+              </Link>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Content */}
       <div className="max-w-7xl mx-auto p-6">
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Stat label="Total Records" value={patients.length} />
-          <Stat label="Current Filter" value={filter.toUpperCase()} />
-          <Stat label="Live Data" value="Realtime" dark />
+          <Stat label="Status View" value={filter} teal />
+          <Stat label="Active Filter" value="Applied" dark />
         </div>
 
         {loading ? (
@@ -104,24 +92,28 @@ export default function PatientsPage() {
         ) : patients.length === 0 ? (
           <Empty />
         ) : (
-          <PatientsTable patients={patients} router={router} />
+          <Table patients={patients} />
         )}
       </div>
     </div>
   )
 }
 
-/* ---------------- COMPONENTS ---------------- */
+/* ---------- Components ---------- */
 
-function Stat({ label, value, dark }) {
+function Stat({ label, value, teal, dark }) {
   return (
     <div
-      className={`p-5 rounded-2xl border ${
-        dark ? 'bg-slate-900 text-white' : 'bg-white'
+      className={`p-5 rounded-2xl ${
+        dark
+          ? 'bg-slate-900 text-white'
+          : teal
+          ? 'bg-teal-50 border border-teal-100'
+          : 'bg-white border'
       }`}
     >
-      <p className="text-xs font-bold opacity-70">{label}</p>
-      <p className="text-2xl font-black mt-1">{value}</p>
+      <p className="text-xs font-bold uppercase opacity-70">{label}</p>
+      <p className="text-2xl font-black">{value}</p>
     </div>
   )
 }
@@ -137,12 +129,12 @@ function Loader() {
 function Empty() {
   return (
     <div className="bg-white rounded-3xl p-20 text-center border border-dashed">
-      <p className="text-slate-400 font-medium">No records found.</p>
+      <p className="text-slate-400 font-medium">No patient records found.</p>
     </div>
   )
 }
 
-function PatientsTable({ patients, router }) {
+function Table({ patients }) {
   return (
     <div className="bg-white rounded-3xl border overflow-hidden">
       <table className="w-full">
@@ -156,10 +148,7 @@ function PatientsTable({ patients, router }) {
         </thead>
         <tbody>
           {patients.map((p) => (
-            <tr
-              key={p.id}
-              className="border-t hover:bg-teal-50/40 transition"
-            >
+            <tr key={p.id} className="border-t hover:bg-teal-50/30">
               <td className="px-6 py-4 flex items-center gap-3">
                 <Avatar name={p.name} />
                 <div>
@@ -167,12 +156,10 @@ function PatientsTable({ patients, router }) {
                   <p className="text-xs text-slate-500">{p.phone}</p>
                 </div>
               </td>
-
               <td className="px-6 py-4">
                 <p className="font-semibold">{p.date}</p>
                 <p className="text-xs text-slate-400">{p.time || 'N/A'}</p>
               </td>
-
               <td className="px-6 py-4">
                 <span
                   className={`px-3 py-1 text-[10px] font-black rounded-full ${
@@ -184,14 +171,13 @@ function PatientsTable({ patients, router }) {
                   {p.patientType}
                 </span>
               </td>
-
               <td className="px-6 py-4 text-right">
-                <button
-                  onClick={() => router.push(`/patients/${p.id}`)}
+                <Link
+                  href={`/patients/${p.id}`}
                   className="text-xs font-bold text-teal-600 bg-teal-50 px-3 py-1 rounded-lg"
                 >
-                  View
-                </button>
+                  View Details
+                </Link>
               </td>
             </tr>
           ))}
